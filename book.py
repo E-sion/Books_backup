@@ -11,15 +11,21 @@ from urllib.parse import urlsplit
 def download_file(url, dest_folder):
     filename = os.path.basename(url)
     filepath = os.path.join(dest_folder, filename)
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        total_size = int(r.headers.get('content-length', 0))
-        progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
-        with open(filepath, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                progress_bar.update(len(chunk))
-    progress_bar.close()
+    try:
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+            with open(filepath, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    progress_bar.update(len(chunk))
+            progress_bar.close()
+    except requests.exceptions.RequestException as e:
+        # 删除正在下载的文件
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise e
     return filename
 
 # 重命名文件的函数，返回重命名后的文件名
@@ -30,21 +36,11 @@ def rename_file(filepath, name_parts):
     os.rename(filepath, new_filepath)
     return new_filename
 
-# 每行数据的处理函数
-def process_row(row, dest_folder):
-    name_parts = [s for s in row if s and 'http' not in s]
-    url = next((s for s in row if s and 'http' in s), None)
-    if not url:
-        return
-    filepath = os.path.join(dest_folder, download_file(url, dest_folder))
-    return rename_file(filepath, name_parts)
-
-
 # 添加
-def append_to_csv(filepath, url):
+def append_to_csv(filepath, url, filename):
     with open(filepath, mode='a', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([url])
+        writer.writerow([url, filename])
 
 
 # 检查
@@ -86,19 +82,22 @@ def main(csv_file, dest_folder):
             if check_if_downloaded(downloaded_file, url):
                 print(f' {url} 已下载 ~ 跳过')
                 continue
-            # 删除下载到一半的文件，防止报错
             else : 
+                # 删除下载到一半的文件，防止报错
                 check_downloading_file = DownloadFile(url, dest_folder)
                 check_downloading_file.delete_existing_file()                
             try:
                 filepath = os.path.join(dest_folder, download_file(url, dest_folder))
                 checker = FileChecker(filepath)
+                # filepath_original = os.path.join(dest_folder, download_file(url, dest_folder))
+                download_file(url, dest_folder)
+                #突然发觉好像写了很多没用的代码。。。
                 #检查该文件是否有效
                 if checker.check_file():
-                    print(f'文件下载成功：', end='')
                     result = rename_file(filepath, [s for s in row if s and 'http' not in s])
+                    print(f'文件下载成功：', end='')
                     print(result)
-                    append_to_csv(downloaded_file, url,result)
+                    append_to_csv(downloaded_file, url, os.path.basename(filepath))                    
                 else:
                     os.remove(filepath)
                     print(f"{result}文件不完整，重新下载")
@@ -106,7 +105,7 @@ def main(csv_file, dest_folder):
                 
             except requests.exceptions.HTTPError:
                 # if
-                print(f"【{url}】请检查该链接的有效性 ~ 跳过")
+                print(f"【 {url} 】请检查该链接的有效性 ~ 跳过")
                 continue
 
 # 获取url，返回给url对应的下载文件名，然后再和文件夹内对比，有的话就代表出现了下载到一半的文件，则删除
@@ -123,7 +122,7 @@ class DownloadFile:
         file_path = os.path.join(self.download_dir, self.filename)
         if os.path.isfile(file_path):
             os.remove(file_path)
-            print("已删除") 
+            print(self.filename) 
 
 
 if __name__ == '__main__':
@@ -133,4 +132,3 @@ if __name__ == '__main__':
     #设置文件要下载到那个目录
     dest_folder = 'downloads'
     main(csv_file, dest_folder)
-
