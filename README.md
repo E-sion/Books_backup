@@ -8,3 +8,6 @@ check.py
 get_link.py
 用于从网页获取下载链接。
 再手动复制到cvs，得到books.csv
+
+check_all_files.py
+用于检查downloads目录下的文件是否损坏
