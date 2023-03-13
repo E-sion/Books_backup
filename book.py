@@ -92,13 +92,13 @@ def main(csv_file, dest_folder):
                 check_downloading_file.delete_existing_file()                
             try:
                 filepath = os.path.join(dest_folder, download_file(url, dest_folder))
+                checker = FileChecker(filepath)
                 #检查该文件是否有效
-                if check.check_file(filepath):
-                    if result:
-                        print(f'文件下载成功：', end='')
-                        result = rename_file(filepath, [s for s in row if s and 'http' not in s])
-                        print(result)
-                        append_to_csv(downloaded_file, url)
+                if checker.check_file():
+                    print(f'文件下载成功：', end='')
+                    result = rename_file(filepath, [s for s in row if s and 'http' not in s])
+                    print(result)
+                    append_to_csv(downloaded_file, url,result)
                 else:
                     os.remove(filepath)
                     print(f"{result}文件不完整，重新下载")
