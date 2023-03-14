@@ -3,30 +3,79 @@ import csv
 import requests
 
 from tqdm import tqdm
-from check import FileChecker
-from urllib.parse import urlsplit
 
+# TODO 
+#修改为断点+多线程下载，支持下载到一半之后再重新再那个进度进行下载操作
+# 下载文件的函数，返回下载的文件名
+import os
+import csv
+import requests
+import threading
+from tqdm import tqdm
+
+# 定义线程类
+class DownloadThread(threading.Thread):
+    def __init__(self, url, filepath, start_byte, end_byte, progress_bar):
+        threading.Thread.__init__(self)
+        self.url = url
+        self.filepath = filepath
+        self.start_byte = start_byte
+        self.end_byte = end_byte
+        self.progress_bar = progress_bar
+        
+    def run(self):
+        headers = {'Range': f'bytes={self.start_byte}-{self.end_byte}'}
+        with requests.get(self.url, headers=headers, stream=True) as r:
+            r.raise_for_status()
+            with open(self.filepath, 'rb+') as f:
+                f.seek(self.start_byte)
+                for chunk in r.iter_content(chunk_size=8192):
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    self.progress_bar.update(len(chunk))
 
 # 下载文件的函数，返回下载的文件名
 def download_file(url, dest_folder):
     filename = os.path.basename(url)
     filepath = os.path.join(dest_folder, filename)
     try:
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
-            with open(filepath, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-                    progress_bar.update(len(chunk))
-            progress_bar.close()
+        # 检查文件是否已经存在
+        if os.path.exists(filepath):
+            total_size = os.path.getsize(filepath)
+            headers = {'Range': f'bytes={total_size}-'}
+            with requests.get(url, headers=headers, stream=True) as r:
+                r.raise_for_status()
+                total_size += int(r.headers.get('content-length', 0))
+                progress_bar = tqdm(total=total_size, initial=total_size, unit='iB', unit_scale=True)
+                # 追加写入文件
+                with open(filepath, 'ab') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        progress_bar.update(len(chunk))
+        else:
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+                # 写入新文件
+                with open(filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        progress_bar.update(len(chunk))
+                        
+        progress_bar.close()
     except requests.exceptions.RequestException as e:
         # 删除正在下载的文件
         if os.path.exists(filepath):
             os.remove(filepath)
         raise e
     return filename
+
 
 # 重命名文件的函数，返回重命名后的文件名
 def rename_file(filepath, name_parts):
@@ -81,49 +130,17 @@ def main(csv_file, dest_folder):
             # url对比，判断是否下载
             if check_if_downloaded(downloaded_file, url):
                 print(f' {url} 已下载 ~ 跳过')
-                continue
-            else : 
-                # 删除下载到一半的文件，防止报错
-                check_downloading_file = DownloadFile(url, dest_folder)
-                check_downloading_file.delete_existing_file()                
+                continue             
             try:
+                # 下载
                 filepath = os.path.join(dest_folder, download_file(url, dest_folder))
-                checker = FileChecker(filepath)
-                # filepath_original = os.path.join(dest_folder, download_file(url, dest_folder))
-                download_file(url, dest_folder)
                 #突然发觉好像写了很多没用的代码。。。
-                #检查该文件是否有效
-                if checker.check_file():
-                    result = rename_file(filepath, [s for s in row if s and 'http' not in s])
-                    print(f'文件下载成功：', end='')
-                    print(result)
-                    append_to_csv(downloaded_file, url, os.path.basename(filepath))                    
-                else:
-                    os.remove(filepath)
-                    print(f"{result}文件不完整，重新下载")
-                    continue
-                
+                result = rename_file(filepath, [s for s in row if s and 'http' not in s])
+                print(f'文件下载成功：{result}')
+                append_to_csv(downloaded_file, url, os.path.basename(filepath))                    
             except requests.exceptions.HTTPError:
-                # if
                 print(f"【 {url} 】请检查该链接的有效性 ~ 跳过")
                 continue
-
-# 获取url，返回给url对应的下载文件名，然后再和文件夹内对比，有的话就代表出现了下载到一半的文件，则删除
-class DownloadFile:
-    def __init__(self,url,folder):
-        self.url = url
-        self.filename = self.get_filename_from_url()
-        self.download_dir = folder
-
-    def get_filename_from_url(self):
-        return self.url.split('/')[-1]
-
-    def delete_existing_file(self):
-        file_path = os.path.join(self.download_dir, self.filename)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
-            print(self.filename) 
-
 
 if __name__ == '__main__':
     # 进行下载
