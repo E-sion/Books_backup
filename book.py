@@ -1,13 +1,14 @@
 import os
 import csv
 import requests
-
+from random import *
 from tqdm import tqdm
+from colorama import init, Fore, Style
+init()
 
 # TODO 
 #修改为断点+多线程下载，支持下载到一半之后再重新再那个进度进行下载操作
 # 下载文件的函数，返回下载的文件名
-import os
 import csv
 import requests
 import threading
@@ -74,6 +75,22 @@ def download_file(url, dest_folder):
         if os.path.exists(filepath):
             os.remove(filepath)
         raise e
+    except FileExistsError:
+             # 旧文件
+             r = randint(114, 514)
+             with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+                # 写入新文件
+                filename = filepath+f"_{r}"
+                with open(filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        progress_bar.update(len(chunk))       
+        
     return filename
 
 
@@ -125,7 +142,7 @@ def main(csv_file, dest_folder):
             url = next((s for s in row if s and 'http' in s), None)
             # 非url
             if not url:
-                print(f" {url} 似乎不是下载链接 ")
+                print(Fore.RED + Style.BRIGHT + f" {url} 可能不是一个链接 ~ 跳过" + Style.RESET_ALL)
                 continue
             # url对比，判断是否下载
             if check_if_downloaded(downloaded_file, url):
@@ -139,8 +156,16 @@ def main(csv_file, dest_folder):
                 print(f'文件下载成功：{result}')
                 append_to_csv(downloaded_file, url, os.path.basename(filepath))                    
             except requests.exceptions.HTTPError:
-                print(f"【 {url} 】请检查该链接的有效性 ~ 跳过")
+                print(Fore.RED + f" {url} 请检查该链接的有效性 ~ 跳过" + Style.RESET_ALL)
+                with open("error_log.txt", "a") as f:
+                    f.write(url +"\n")
                 continue
+            except requests.exceptions.InvalidSchema:
+                print(Fore.RED + Style.BRIGHT + f" {url} 可能不是一个链接 ~ 跳过" + Style.RESET_ALL)
+                with open("error_log.txt", "a") as f:
+                    f.write(url +"\n")
+                continue
+
 
 if __name__ == '__main__':
     # 进行下载
