@@ -1,8 +1,11 @@
 import os
 import csv
+import re
 import requests
 from random import *
 from tqdm import tqdm
+import itertools
+import opencc
 from colorama import init, Fore, Style
 init()
 
@@ -36,68 +39,54 @@ class DownloadThread(threading.Thread):
                     f.write(chunk)
                     self.progress_bar.update(len(chunk))
 
-# 下载文件的函数，返回下载的文件名
 def download_file(url, dest_folder):
     filename = os.path.basename(url)
     filepath = os.path.join(dest_folder, filename)
     try:
-        # 检查文件是否已经存在
         if os.path.exists(filepath):
-            total_size = os.path.getsize(filepath)
-            headers = {'Range': f'bytes={total_size}-'}
-            with requests.get(url, headers=headers, stream=True) as r:
-                r.raise_for_status()
-                total_size += int(r.headers.get('content-length', 0))
-                progress_bar = tqdm(total=total_size, initial=total_size, unit='iB', unit_scale=True)
-                # 追加写入文件
-                with open(filepath, 'ab') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))
-        else:
-            with requests.get(url, stream=True) as r:
-                r.raise_for_status()
-                total_size = int(r.headers.get('content-length', 0))
-                progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
-                # 写入新文件
-                with open(filepath, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))
-                        
+            for i in itertools.count(1):
+                filename, ext = os.path.splitext(filepath)
+                filepath = f"{filename}_{i}{ext}"
+                if not os.path.exists(filepath):
+                    break
+                    
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+            with open(filepath, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    progress_bar.update(len(chunk))
+                    
         progress_bar.close()
     except requests.exceptions.RequestException as e:
-        # 删除正在下载的文件
         if os.path.exists(filepath):
             os.remove(filepath)
         raise e
-    except FileExistsError:
-             # 旧文件
-             r = randint(114, 514)
-             with requests.get(url, stream=True) as r:
-                r.raise_for_status()
-                total_size = int(r.headers.get('content-length', 0))
-                progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
-                # 写入新文件
-                filename = filepath+f"_{r}"
-                with open(filename, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))       
-        
-    return filename
+    except OSError:
+        print(Fore.RED + Style.BRIGHT + f" {filename} 文件命名錯誤 ~ 跳过" + Style.RESET_ALL)
+        with open("error_log.txt", "a") as f:
+            f.write(url + "\n")
+    except Exception as e:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise e
 
+    return filepath
 
 # 重命名文件的函数，返回重命名后的文件名
 def rename_file(filepath, name_parts):
     filename, ext = os.path.splitext(filepath)
-    new_filename = '_'.join(name_parts) + ext
+    new_filename_a = '_'.join(name_parts) + ext
+    
+    # 繁体汉字到简体汉字的转换
+    converter = opencc.OpenCC('t2s.json')
+    new_filename_a = converter.convert(new_filename_a)
+    
+    new_filename  = re.sub(r'[\\/:"*?<>|]', '_', new_filename_a).strip('.')
     new_filepath = os.path.join(os.path.dirname(filepath), new_filename)
     os.rename(filepath, new_filepath)
     return new_filename
@@ -156,7 +145,7 @@ def main(csv_file, dest_folder):
                 print(f'文件下载成功：{result}')
                 append_to_csv(downloaded_file, url, os.path.basename(filepath))                    
             except requests.exceptions.HTTPError:
-                print(Fore.RED + f" {url} 请检查该链接的有效性 ~ 跳过" + Style.RESET_ALL)
+                print(Fore.RED + f" {url} 網絡錯誤 ~ 跳过" + Style.RESET_ALL)
                 with open("error_log.txt", "a") as f:
                     f.write(url +"\n")
                 continue
