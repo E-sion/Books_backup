@@ -1,4 +1,4 @@
-下载只需要运行books.py
+下载只需要运行book.py
 
 其他文件介绍：
-books.py 用于下载文件。
+book.py 用于下载文件。
